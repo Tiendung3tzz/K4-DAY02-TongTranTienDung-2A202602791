@@ -124,7 +124,7 @@ def load_best_model(cfg: train.Config, device: str | torch.device):
     net = model_lib.build_model(cfg.backbone, pretrained=False, init="scratch",
                                 drop_rate=cfg.drop_rate)
     checkpoint = torch.load(train.run_dir(cfg) / "best.pt", map_location="cpu", weights_only=False)
-    net.load_state_dict(checkpoint["state_dict"])
+    model_lib.load_checkpoint_state(net, checkpoint["state_dict"])
     return net.to(device).eval()
 
 

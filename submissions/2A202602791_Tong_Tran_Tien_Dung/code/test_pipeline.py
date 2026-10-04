@@ -1,6 +1,8 @@
 """Small correctness checks that do not require DeepWeeds or a GPU."""
 import unittest
 import io
+import sys
+import types
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -21,9 +23,42 @@ import workflow
 
 
 class PipelineChecks(unittest.TestCase):
+    def test_gmac_profile_does_not_modify_training_model(self):
+        net = nn.Linear(3, 9).train()
+        def profile(profiled, inputs, verbose):
+            with torch.inference_mode():
+                profiled.register_buffer("total_ops", torch.zeros(1))
+            return 1e9, 0
+        with patch.dict(sys.modules, {"thop": types.SimpleNamespace(profile=profile)}):
+            self.assertEqual(model.count_gmacs(net, img_size=4), 1.0)
+        self.assertTrue(net.training)
+        self.assertNotIn("total_ops", net.state_dict())
+        legacy = dict(net.state_dict())
+        with torch.inference_mode():
+            legacy["total_ops"] = torch.zeros(1)
+        restored = nn.Linear(3, 9)
+        model.load_checkpoint_state(restored, legacy)
+        torch.testing.assert_close(restored.weight, net.weight)
+
+    def test_finished_history_recovers_complete_run(self):
+        out = Path("saved-run")
+        cfg = train.Config(epochs=2)
+        history = pd.DataFrame([
+            {"epoch": 1, "macro_f1_val": 0.4, "train_seconds": 2, "epoch_seconds": 3},
+            {"epoch": 2, "macro_f1_val": 0.5, "train_seconds": 2, "epoch_seconds": 3},
+        ])
+        checkpoint = {"epoch": 2, "macro_f1_val": 0.5, "state_dict": {}}
+        with patch.object(Path, "is_file", return_value=True), \
+             patch.object(train.pd, "read_csv", return_value=history), \
+             patch.object(train.torch, "load", return_value=checkpoint):
+            recovered = train._finished_history(out, cfg)
+        self.assertEqual(len(recovered[0]), 2)
+        self.assertEqual(recovered[1:], (0.5, 2))
+
     def test_load_split_accepts_official_two_column_csv(self):
         frame = pd.DataFrame({"Filename": ["example.jpg"], "Label": [0]})
-        with patch.object(dataset.pd, "read_csv", return_value=frame) as read_csv:
+        with patch.object(Path, "is_file", return_value=True), \
+             patch.object(dataset.pd, "read_csv", return_value=frame) as read_csv:
             splits = dataset.load_split("labels", fold=0)
         self.assertEqual(len(splits), 3)
         self.assertTrue(all(list(split.columns) == ["Filename", "Label"] for split in splits))
@@ -84,7 +119,7 @@ class PipelineChecks(unittest.TestCase):
         with patch.object(Path, "is_file", return_value=True):
             with redirect_stdout(io.StringIO()):
                 result = dataset.check_split(a, b, c, "unused")
-            self.assertEqual(result["total"], 17509)
+            self.assertEqual(result["union_count"], 17509)
             with self.assertRaisesRegex(ValueError, "overlap"):
                 dataset.check_split(a, b, pd.concat([c.iloc[:-1], a.iloc[:1]]), "unused")
 

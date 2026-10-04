@@ -246,6 +246,23 @@ def plot_curves(history: list[dict], path: str | Path, title: str) -> None:
     plt.close(fig)
 
 
+def _finished_history(out: Path, cfg: Config):
+    """Recover a finished training loop interrupted during final checkpoint loading."""
+    history_path, checkpoint_path = out / "history.csv", out / "best.pt"
+    if not history_path.is_file() or not checkpoint_path.is_file():
+        return None
+    history = pd.read_csv(history_path)
+    if (len(history) != cfg.epochs or
+            history["epoch"].tolist() != list(range(1, cfg.epochs + 1))):
+        return None
+    best_row = history.iloc[history["macro_f1_val"].to_numpy().argmax()]
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    if (checkpoint.get("epoch") != int(best_row["epoch"]) or
+            not np.isclose(checkpoint.get("macro_f1_val"), best_row["macro_f1_val"])):
+        return None
+    return history.to_dict("records"), float(best_row["macro_f1_val"]), int(best_row["epoch"])
+
+
 def run(cfg: Config) -> dict:
     """Huấn luyện một cấu hình và lưu mọi thứ cần thiết. Trả về dict kết quả tóm tắt.
 
@@ -268,6 +285,12 @@ def run(cfg: Config) -> dict:
     set_seed(cfg.seed)
     out = run_dir(cfg)
     out.mkdir(parents=True, exist_ok=True)
+    config_path = out / "config.json"
+    if config_path.exists() and json.loads(config_path.read_text(encoding="utf-8")) != asdict(cfg):
+        raise ValueError(f"{cfg.exp_id} seed {cfg.seed}: existing configuration differs")
+    finished = _finished_history(out, cfg)
+    if finished is not None:
+        print(f"{cfg.exp_id} seed={cfg.seed}: reusing {cfg.epochs} saved epochs after interrupted finalization")
     (out / "config.json").write_text(json.dumps(asdict(cfg), indent=2), encoding="utf-8")
     train_df, val_df, test_df = dataset.load_split(cfg.labels_dir, cfg.fold)
     split_report = dataset.check_split(train_df, val_df, test_df, cfg.images_dir)
@@ -302,8 +325,10 @@ def run(cfg: Config) -> dict:
     except Exception as exc:
         print(f"GMAC measurement unavailable for {cfg.backbone}: {exc}")
         gmacs = None
-    history, best_f1, best_epoch, epoch_times, train_times = [], -1.0, None, [], []
-    for epoch in range(1, cfg.epochs + 1):
+    history, best_f1, best_epoch = finished if finished is not None else ([], -1.0, None)
+    epoch_times = [row["epoch_seconds"] for row in history]
+    train_times = [row["train_seconds"] for row in history]
+    for epoch in range(len(history) + 1, cfg.epochs + 1):
         start = time.perf_counter()
         train_result = train_one_epoch(net, train_loader, criterion, optimizer,
                                        scheduler, scaler, cfg, device, ema)
@@ -326,7 +351,7 @@ def run(cfg: Config) -> dict:
             torch.save({"state_dict": eval_model.state_dict(), "epoch": epoch,
                         "macro_f1_val": best_f1}, out / "best.pt")
     checkpoint = torch.load(out / "best.pt", map_location=device, weights_only=False)
-    net.load_state_dict(checkpoint["state_dict"])
+    model_lib.load_checkpoint_state(net, checkpoint["state_dict"])
     names, y_val, z_val, _ = evaluate(net, val_loader, criterion, device)
     val_probs = torch.softmax(torch.as_tensor(z_val), dim=1).numpy()
     np.savez_compressed(out / "val_logits.npz", filenames=np.asarray(names), y_true=y_val, logits=z_val)

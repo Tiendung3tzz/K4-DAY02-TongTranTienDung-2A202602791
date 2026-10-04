@@ -1,6 +1,8 @@
 """Backbone construction and optimizer parameter groups."""
 from __future__ import annotations
 
+import copy
+
 import torch
 
 SUGGESTED_BACKBONES = {"resnet50": "resnet50", "resnext50": "resnext50_32x4d",
@@ -66,10 +68,17 @@ def count_gmacs(model, img_size: int = 224) -> float:
         from thop import profile
     except ImportError as exc:
         raise ImportError("Install thop to measure GMAC: pip install thop") from exc
-    was_training = model.training
-    model.eval()
-    device = next(model.parameters()).device
-    with torch.inference_mode():
-        macs, _ = profile(model, inputs=(torch.zeros(1, 3, img_size, img_size, device=device),), verbose=False)
-    model.train(was_training)
+    # THOP registers total_ops/total_params buffers on the profiled modules.
+    # Profile a separate CPU copy so they never enter a training checkpoint.
+    profiled = copy.deepcopy(model).cpu().eval()
+    with torch.no_grad():
+        macs, _ = profile(profiled, inputs=(torch.zeros(1, 3, img_size, img_size),), verbose=False)
+    del profiled
     return float(macs / 1e9)
+
+
+def load_checkpoint_state(model, state_dict) -> None:
+    """Load weights, ignoring only THOP counters from older checkpoints."""
+    clean = {key: value for key, value in state_dict.items()
+             if key.rsplit(".", 1)[-1] not in {"total_ops", "total_params"}}
+    model.load_state_dict(clean)

@@ -14,6 +14,8 @@ Enable a GPU, then run the Step 1 notebook cell after Step 0. It trains five arc
 
 Review the completed table and Pareto candidates before naming the 1–2 backbones for Steps 2–3. With only one screening seed, small score differences are inconclusive.
 
+If a run finished every epoch but stopped while loading `best.pt`, keep its `runs/<exp_id>/seed<k>/` folder. After updating the code and restarting the Kaggle kernel, rerun the Step 1 cell. It checks `history.csv` against the saved checkpoint, completes evaluation, and writes the missing summary without repeating the training epochs. Do not delete the cloned repository while it contains these run files.
+
 ## Steps 2–5 on Kaggle
 
 - Step 2 runs T00 and six one-factor trials across initialization, augmentation, and loss, then tests one B+C combination. The `Training` sheet records every change and its val macro-F1 difference from T00.
