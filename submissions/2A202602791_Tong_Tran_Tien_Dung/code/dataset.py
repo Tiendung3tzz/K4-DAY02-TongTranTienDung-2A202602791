@@ -26,8 +26,9 @@ def load_split(labels_dir: str | Path, fold: int = 0):
     for split in ("train", "val", "test"):
         path = root / f"{split}_subset{fold}.csv"
         frame = pd.read_csv(path)
-        if not {"Filename", "Label", "Species"} <= set(frame.columns):
-            raise ValueError(f"{path}: missing Filename, Label or Species")
+        # Official fold CSVs have only Filename and Label; Species is in labels.csv.
+        if not {"Filename", "Label"} <= set(frame.columns):
+            raise ValueError(f"{path}: missing Filename or Label (found {list(frame.columns)})")
         result.append(frame)
     return tuple(result)
 

@@ -21,6 +21,14 @@ import workflow
 
 
 class PipelineChecks(unittest.TestCase):
+    def test_load_split_accepts_official_two_column_csv(self):
+        frame = pd.DataFrame({"Filename": ["example.jpg"], "Label": [0]})
+        with patch.object(dataset.pd, "read_csv", return_value=frame) as read_csv:
+            splits = dataset.load_split("labels", fold=0)
+        self.assertEqual(len(splits), 3)
+        self.assertTrue(all(list(split.columns) == ["Filename", "Label"] for split in splits))
+        self.assertEqual(read_csv.call_count, 3)
+
     def test_focal_gamma_zero_matches_ce(self):
         torch.manual_seed(0)
         logits = torch.randn(7, 9)
