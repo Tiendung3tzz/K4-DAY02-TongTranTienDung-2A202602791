@@ -1,5 +1,5 @@
 # DeepWeeds Lab Day 2 — Kaggle run instructions
-
+kaggle : `https://www.kaggle.com/code/dung3te/notebook1167a23f8c`
 The implementation is in `code/`. The notebook `code/lab_day2.ipynb` covers Steps 0–5. No dataset or checkpoints are stored in this submission.
 
 1. Upload or clone the repository into Kaggle Working and attach the original DeepWeeds images and official CSV files as Kaggle Inputs.

@@ -1,0 +1,8 @@
+{
+  "source_exp_id": "T04",
+  "method": "I02",
+  "calibrate": true,
+  "val_ece_before": 0.0067208374067566565,
+  "val_ece_after": 0.0025772929463271275,
+  "seed": 0
+}
